@@ -1,0 +1,9 @@
+
+'Matterhorn' is a means for composing web application modules built using node.js and the express framework,
+and a collection of such modules.
+
+Right now, this software is undocumented and largely untested.  You'd be crazy to use it.
+
+*****
+
+matterhorn-view implements a simple system for rendering and syncing a view of a matterhorn-state model.
