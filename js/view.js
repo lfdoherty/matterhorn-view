@@ -1,4 +1,6 @@
 
+//#requires renderers fastevent
+
 /*
 
 Todo implement view update batching.
@@ -7,56 +9,124 @@ Todo implement view update batching.
 
 View = {};
 
+
 (function(){
-
-var views = {};
-
-var rendering = false;
 
 var blocked = false;
 
-function renderView(parentView, model, domId, f, isSubmodel){
+disableViewRefresh = function(){blocked = true;}
+enableViewRefresh = function(){blocked = false;}
 
-	var domContainer = $('#' + domId);
+var rendering = false;
 
-	function beforeRefresh(){return afterRefresh;}
+function renderView(model, domId, f, isSubmodel, okToRefresh, dontBubble){
+	_.assertDefined(model);
+	_.assertString(domId);
+
+	var hb = false;
 	
-	var v = {children: {}, container: domContainer, bf: beforeRefresh};
-	
-	if(views[domId] !== undefined){
-		var did = model.removeListener(views[domId].bf);
-		if(!did){
-			_.errout('error, tried to remove listener and was told it did not exist');
-		}
+	var myOkToRefresh = {hasBegun: hasBegun, children: {}}
+
+	function hasBegun(){
+		hb = true;
+		if(okToRefresh) okToRefresh.hasBegun();
 	}
 	
-	parentView[domId] = v;
-	views[domId] = v;
+	function finishRefresh(){hb = false;}
 	
+	function beforeRefresh(isSource){
+		if(!hb){
+			if(dontBubble){
+				hasBegun();
+				console.log('before refresh on ' + domId);
+				return afterRefresh;
+			}else{
+				if(!isSubmodel) return afterRefresh;
+			}
+		}
+		return finishRefresh;
+	}
+
+	if(okToRefresh) okToRefresh.children[domId] = function(){
+		if(!_.isFunction(model) && !_.isPrimitive(model)){
+			console.log('removed child listener: ' + domId);
+			model.removeListener('view_renderer_' + domId, beforeRefresh);
+		}		
+	}
 	
-	model.listen(beforeRefresh);
+	if(!_.isFunction(model) && !_.isPrimitive(model)){
+		model.listenForRefresh('view_renderer_' + domId, beforeRefresh);
+	}
 
 	var handle = {};
 
 	function refresh(isRenderingSuperModel){
+	
+		_.each(myOkToRefresh.children, function(removeFunction, childDomId){
+			removeFunction();
+		});
+		myOkToRefresh.children = {};
 
-		function cb(subModel, subDomId, subF){
-			_.assertLength(arguments, 3);
-			return renderView(v.children, subModel, subDomId, subF, true);
+		function cb(subModel, subDomId, subF, dontBubble){
+			//_.assertLength(arguments, 3);
+			_.assertFunction(subF);
+			//_.assertObject(subModel);
+			//_.assertString(subDomId);
+			_.assertPrimitive(subDomId);
+			return renderView(subModel, domId + subDomId, subF, true, myOkToRefresh, dontBubble);
 		}
 		
-		var html = f(model, cb);
+		cb.fullId = function(subDomId){
+			if(arguments.length === 0) subDomId = '';
+			else _.assertDefined(subDomId);
+			return domId + subDomId;
+		}
+		cb.refresh = function(){
+			//console.log('view refreshing via rr.refresh');
+			refresh(false);
+			
+		}
 		
-		v.html = html;
+		cb.property = function(propertyName, subF, dontBubble){
+			_.assertString(propertyName);
+			_.assertFunction(subF);
+			var subModel = model.property(propertyName);
+			_.assertDefined(subModel);
+			return renderView(subModel, domId + propertyName, subF, true, myOkToRefresh, dontBubble);
+		}
+		cb.propertyDiv = function(propertyName, subF, classStrings, dontBubble){
+			_.assertString(propertyName);
+			_.assertFunction(subF);
+			var subModel = model.property(propertyName);
+			_.assertDefined(subModel);
+			var subDomId = domId + propertyName;
+			return '<div id="' + domId + '">' +
+				renderView(subModel, subDomId, subF, true, myOkToRefresh, dontBubble) +
+				'</div>';
+		}
+		cb.propertySpan = function(propertyName, subF, classStrings, dontBubble){
+			_.assertString(propertyName);
+			_.assertFunction(subF);
+			var subModel = model.property(propertyName);
+			_.assertDefined(subModel);
+			var subDomId = domId + propertyName;
+			return '<span id="' + domId + '">' +
+				renderView(subModel, subDomId, subF, true, myOkToRefresh, dontBubble) +
+				'</span>';
+		}
+		var html = f(_.isFunction(model) ? model() : model, cb);
+		
+		_.assertString(html);
 		
 		if(isRenderingSuperModel){
 			return html;
 		}else{
 			var domContainer = $('#' + domId);
-			v.container = domContainer;
+			var container = domContainer;
+			_.assertLength(domContainer, 1);
 
 			rendering = true;
-			v.container.html(html);
+			container.html(html);
 			rendering = false;
 		}
 	}
@@ -64,7 +134,9 @@ function renderView(parentView, model, domId, f, isSubmodel){
 	function afterRefresh(){
 		if(!blocked){
 			refresh();
+			console.log('done refresh on ' + domId);
 		}
+		hb = false;
 	}
 	
 	return refresh(isSubmodel);
@@ -76,31 +148,8 @@ View.isRendering = function(){
 
 View.render = function(model, domId, f){
 	
-	return renderView(views, model, domId, f, false);
+	return renderView(model, domId, f, false);
 }
 
-View.blockRefresh = function(){
-	blocked = true;
-}
-View.unblockRefresh = function(){
-	blocked = false;
-}
-
-//provides the most recent rendering for the given domId
-View.getLastRender = function(domId){
-	var v = views[domId];
-	if(v === undefined){
-		console.log('candidates: ' + JSON.stringify(_.keys(views)));
-		_.errout('domId has never been rendered(' + domId + ')');
-	}
-	return v.html;
-}
-
-View.delayRendering = function(){
-	//TODO
-}
-View.resumeRendering = function(){
-	//TODO
-}
 
 })();

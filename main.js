@@ -2,5 +2,6 @@
 exports.name = 'matterhorn-view';
 exports.dir = __dirname;
 
-app.js(exports, 'matterhorn-view', ['view']);
+app.js(exports, 'view', 'view');
 
+app.css(exports, 'view', 'view');
